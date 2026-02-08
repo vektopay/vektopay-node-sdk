@@ -24,6 +24,70 @@ export type ChargeStatusResponse =
   | { id: string; status: "PENDING_CHALLENGE" }
   | { id: string; status: "PROCESSING_GATEWAY" };
 
+export type TransactionItemInput = {
+  priceId: string;
+  quantity: number;
+};
+
+export type TransactionPaymentMethodInput = {
+  type: "credit_card" | "pix";
+  token: string;
+  installments: number;
+};
+
+export type TransactionInput = {
+  customerId: string;
+  items: TransactionItemInput[];
+  couponCode?: string;
+  paymentMethod: TransactionPaymentMethodInput;
+};
+
+export type TransactionResponse = {
+  id: string;
+  status: "submitted" | "failed" | string;
+  paymentStatus?: "SUCCESS" | "FAILED" | "PENDING";
+  merchantId?: string;
+  amount?: number;
+  currency?: "BRL" | "USD";
+};
+
+export type CustomerCreateInput = {
+  merchantId: string;
+  externalId: string;
+  name?: string;
+  email?: string;
+  docType: "CPF" | "CNPJ";
+  docNumber: string;
+};
+
+export type CustomerUpdateInput = Partial<CustomerCreateInput>;
+
+export type CustomerCreateResponse = {
+  id: string;
+};
+
+export type CustomerListParams = {
+  merchantId?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type CustomerDeleteResponse = {
+  ok: boolean;
+};
+
+export type CustomerResponse = {
+  id: string;
+  merchantId?: string | null;
+  externalId?: string | null;
+  name?: string | null;
+  email?: string | null;
+  docType?: string | null;
+  docNumber?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type VektopaySdkConfig = {
   apiKey: string;
   baseUrl: string;
@@ -111,6 +175,154 @@ export class VektopaySDK {
     if (!res.ok) {
       throw new Error(
         resolveErrorMessage(payload) ?? `charge_failed_${res.status}`,
+      );
+    }
+    return payload;
+  }
+
+  async createTransaction(
+    input: TransactionInput,
+  ): Promise<TransactionResponse> {
+    const res = await fetch(`${this.baseUrl}/v1/transactions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": this.apiKey,
+        ...this.defaultHeaders,
+      },
+      body: JSON.stringify({
+        customer_id: input.customerId,
+        items: input.items.map((item) => ({
+          price_id: item.priceId,
+          quantity: item.quantity,
+        })),
+        coupon_code: input.couponCode,
+        payment_method: {
+          type: input.paymentMethod.type,
+          token: input.paymentMethod.token,
+          installments: input.paymentMethod.installments,
+        },
+      }),
+    });
+
+    const payload = (await res.json()) as TransactionResponse;
+    if (!res.ok) {
+      throw new Error(
+        resolveErrorMessage(payload) ?? `transaction_failed_${res.status}`,
+      );
+    }
+    return payload;
+  }
+
+  async createCustomer(
+    input: CustomerCreateInput,
+  ): Promise<CustomerCreateResponse> {
+    const res = await fetch(`${this.baseUrl}/v1/customers`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": this.apiKey,
+        ...this.defaultHeaders,
+      },
+      body: JSON.stringify({
+        merchant_id: input.merchantId,
+        external_id: input.externalId,
+        name: input.name,
+        email: input.email,
+        doc_type: input.docType,
+        doc_number: input.docNumber,
+      }),
+    });
+
+    const payload = (await res.json()) as CustomerCreateResponse;
+    if (!res.ok || !payload.id) {
+      throw new Error(
+        resolveErrorMessage(payload) ?? `customer_create_failed_${res.status}`,
+      );
+    }
+    return payload;
+  }
+
+  async updateCustomer(
+    id: string,
+    input: CustomerUpdateInput,
+  ): Promise<CustomerResponse> {
+    const res = await fetch(`${this.baseUrl}/v1/customers/${id}`, {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": this.apiKey,
+        ...this.defaultHeaders,
+      },
+      body: JSON.stringify({
+        merchant_id: input.merchantId,
+        external_id: input.externalId,
+        name: input.name,
+        email: input.email,
+        doc_type: input.docType,
+        doc_number: input.docNumber,
+      }),
+    });
+
+    const payload = (await res.json()) as CustomerResponse;
+    if (!res.ok) {
+      throw new Error(
+        resolveErrorMessage(payload) ?? `customer_update_failed_${res.status}`,
+      );
+    }
+    return payload;
+  }
+
+  async listCustomers(
+    params: CustomerListParams = {},
+  ): Promise<CustomerResponse[]> {
+    const search = new URLSearchParams();
+    if (params.merchantId) search.set("merchant_id", params.merchantId);
+    if (typeof params.limit === "number")
+      search.set("limit", String(params.limit));
+    if (typeof params.offset === "number")
+      search.set("offset", String(params.offset));
+    const suffix = search.toString();
+    const res = await fetch(
+      `${this.baseUrl}/v1/customers${suffix ? `?${suffix}` : ""}`,
+      {
+        headers: { "x-api-key": this.apiKey, ...this.defaultHeaders },
+      },
+    );
+
+    const payload = (await res.json()) as CustomerResponse[];
+    if (!res.ok) {
+      throw new Error(
+        resolveErrorMessage(payload) ?? `customer_list_failed_${res.status}`,
+      );
+    }
+    return payload;
+  }
+
+  async getCustomer(id: string): Promise<CustomerResponse> {
+    const res = await fetch(`${this.baseUrl}/v1/customers/${id}`, {
+      headers: { "x-api-key": this.apiKey, ...this.defaultHeaders },
+    });
+
+    const payload = (await res.json()) as CustomerResponse;
+    if (!res.ok) {
+      throw new Error(
+        resolveErrorMessage(payload) ?? `customer_get_failed_${res.status}`,
+      );
+    }
+    return payload;
+  }
+
+  async deleteCustomer(id: string): Promise<CustomerDeleteResponse> {
+    const res = await fetch(`${this.baseUrl}/v1/customers/${id}`, {
+      method: "DELETE",
+      headers: { "x-api-key": this.apiKey, ...this.defaultHeaders },
+    });
+
+    const payload = (await res.json()) as CustomerDeleteResponse;
+    if (!res.ok) {
+      throw new Error(
+        resolveErrorMessage(payload) ?? `customer_delete_failed_${res.status}`,
       );
     }
     return payload;
