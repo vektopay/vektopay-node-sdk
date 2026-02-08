@@ -1,6 +1,6 @@
 # @vektopay/node-sdk
 
-Node.js SDK for Vektopay API (server-side). Supports transactions (checkout), charges, checkout sessions, and charge status polling.
+Node.js SDK for Vektopay API (server-side). Supports payments, checkout sessions, and payment status polling.
 
 ## Install
 
@@ -19,12 +19,12 @@ const sdk = new VektopaySDK({
 });
 ```
 
-## Create Transaction (API Checkout)
+## Create Payment (Recommended)
 
-Creates a transaction using `/v1/transactions` with `items` and a `payment_method`.
+Creates a payment using `/v1/payments`. This replaces the deprecated `/v1/charges` and `/v1/transactions`.
 
 ```ts
-const transaction = await sdk.createTransaction({
+const payment = await sdk.createPayment({
   customerId: "cust_123",
   items: [{ priceId: "price_basic", quantity: 1 }],
   couponCode: "OFF10",
@@ -35,12 +35,12 @@ const transaction = await sdk.createTransaction({
   },
 });
 
-console.log(transaction.id, transaction.status, transaction.paymentStatus);
+console.log(payment.paymentId, payment.status, payment.paymentStatus);
 ```
 
-## Create Customer
+## Create Customer (Dashboard Scope)
 
-Customers must exist before creating transactions or charges.
+Customer management is dashboard-scoped. Provide `bearerToken` (dashboard session) in the SDK config.
 
 ```ts
 const customer = await sdk.createCustomer({
@@ -96,6 +96,8 @@ const charge = await sdk.createCharge({
 });
 ```
 
+`createCharge` and `createTransaction` are legacy aliases that call `/v1/payments`.
+
 ## Create Checkout Session (Frontend)
 
 Use this to get a `token` and open the hosted/embedded checkout in the browser.
@@ -112,10 +114,10 @@ const session = await sdk.createCheckoutSession({
 console.log(session.token);
 ```
 
-## Poll Charge Status
+## Poll Payment Status
 
 ```ts
-const status = await sdk.pollChargeStatus(charge.id, {
+const status = await sdk.pollPaymentStatus(payment.paymentId, {
   intervalMs: 3000,
   timeoutMs: 120_000,
 });

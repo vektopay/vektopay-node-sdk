@@ -20,9 +20,8 @@ export type ChargeResponse =
     };
 
 export type ChargeStatusResponse =
-  | { id: string; status: "PAID" | "FAILED" }
-  | { id: string; status: "PENDING_CHALLENGE" }
-  | { id: string; status: "PROCESSING_GATEWAY" };
+  | { id: string; status: "PAID" | "FAILED" | "CANCELED" }
+  | { id: string; status: "PENDING_CHALLENGE" | "PROCESSING_GATEWAY" | "AUTHORIZED" };
 
 export type TransactionItemInput = {
   priceId: string;
@@ -92,12 +91,85 @@ export type VektopaySdkConfig = {
   apiKey: string;
   baseUrl: string;
   defaultHeaders?: Record<string, string>;
+  /**
+   * Optional dashboard auth token for dashboard-scoped endpoints (not part of the public API key surface).
+   * If provided, some calls may use `Authorization: Bearer <token>` instead of `x-api-key`.
+   */
+  bearerToken?: string;
 };
 
 export type PollOptions = {
   intervalMs?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
+};
+
+export type PaymentMethodInput = {
+  type: "credit_card" | "pix";
+  token?: string;
+  cardId?: string;
+  cvcToken?: string;
+  installments?: number;
+};
+
+export type PaymentCustomerInput = {
+  externalId: string;
+  name?: string;
+  email?: string;
+  docType: "CPF" | "CNPJ";
+  docNumber: string;
+};
+
+export type PaymentItemInput = {
+  priceId: string;
+  quantity: number;
+};
+
+export type PaymentInput = {
+  customerId?: string;
+  customer?: PaymentCustomerInput;
+  items?: PaymentItemInput[];
+  amount?: number;
+  currency?: string;
+  couponCode?: string;
+  mode?: "one_time" | "subscription";
+  webhookUrl?: string;
+  paymentMethod: PaymentMethodInput;
+};
+
+export type PaymentStatus =
+  | "PAID"
+  | "FAILED"
+  | "ACTION_REQUIRED"
+  | "SUBMITTED"
+  | "PENDING"
+  | "PENDING_CHALLENGE"
+  | "PROCESSING_GATEWAY"
+  | "AUTHORIZED"
+  | "CAPTURED"
+  | "CANCELED";
+
+export type PaymentMethodStatus = "SUCCESS" | "FAILED" | "PENDING";
+
+export type PaymentResponse = {
+  paymentId: string;
+  status: PaymentStatus;
+  paymentStatus?: PaymentMethodStatus;
+  subscriptionId?: string | null;
+  amount?: number | null;
+  currency?: string | null;
+  challenge?: { url: string };
+};
+
+export type PaymentStatusResponse = {
+  id: string;
+  status:
+    | "PENDING_CHALLENGE"
+    | "PROCESSING_GATEWAY"
+    | "AUTHORIZED"
+    | "PAID"
+    | "CANCELED"
+    | "FAILED";
 };
 
 export type CheckoutSessionInput = {
@@ -107,12 +179,14 @@ export type CheckoutSessionInput = {
   expiresInSeconds?: number;
   successUrl?: string;
   cancelUrl?: string;
+  priceId?: string;
+  quantity?: number;
 };
 
 export type CheckoutSessionResponse = {
   id: string;
   token: string;
-  expiresAt: string;
+  expiresAt: number;
 };
 
 function resolveErrorMessage(payload: unknown): string | undefined {
@@ -142,86 +216,204 @@ export class VektopaySDK {
   private apiKey: string;
   private baseUrl: string;
   private defaultHeaders: Record<string, string>;
+  private bearerToken?: string;
 
   constructor(config: VektopaySdkConfig) {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
     this.defaultHeaders = config.defaultHeaders ?? {};
+    this.bearerToken = config.bearerToken;
   }
 
-  async createCharge(input: ChargeInput): Promise<ChargeResponse> {
-    const idempotencyKey = input.idempotencyKey ?? randomKey();
-    const res = await fetch(`${this.baseUrl}/v1/charges`, {
+  async createPayment(input: PaymentInput): Promise<PaymentResponse> {
+    const res = await fetch(`${this.baseUrl}/v1/payments`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "x-api-key": this.apiKey,
-        "idempotency-key": idempotencyKey,
         ...this.defaultHeaders,
       },
       body: JSON.stringify({
         customer_id: input.customerId,
-        card_id: input.cardId,
+        customer: input.customer
+          ? {
+              external_id: input.customer.externalId,
+              name: input.customer.name,
+              email: input.customer.email,
+              doc_type: input.customer.docType,
+              doc_number: input.customer.docNumber,
+            }
+          : undefined,
+        items: input.items?.map((i) => ({ price_id: i.priceId, quantity: i.quantity })),
         amount: input.amount,
         currency: input.currency,
-        installments: input.installments,
-        country: input.country,
-        metadata: input.metadata,
-        price_id: input.priceId,
-      }),
-    });
-
-    const payload = (await res.json()) as ChargeResponse;
-    if (!res.ok) {
-      throw new Error(
-        resolveErrorMessage(payload) ?? `charge_failed_${res.status}`,
-      );
-    }
-    return payload;
-  }
-
-  async createTransaction(
-    input: TransactionInput,
-  ): Promise<TransactionResponse> {
-    const res = await fetch(`${this.baseUrl}/v1/transactions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": this.apiKey,
-        ...this.defaultHeaders,
-      },
-      body: JSON.stringify({
-        customer_id: input.customerId,
-        items: input.items.map((item) => ({
-          price_id: item.priceId,
-          quantity: item.quantity,
-        })),
         coupon_code: input.couponCode,
+        mode: input.mode,
+        webhook_url: input.webhookUrl,
         payment_method: {
           type: input.paymentMethod.type,
           token: input.paymentMethod.token,
+          card_id: input.paymentMethod.cardId,
+          cvc_token: input.paymentMethod.cvcToken,
           installments: input.paymentMethod.installments,
         },
       }),
     });
 
-    const payload = (await res.json()) as TransactionResponse;
+    const payload = (await res.json()) as unknown;
     if (!res.ok) {
-      throw new Error(
-        resolveErrorMessage(payload) ?? `transaction_failed_${res.status}`,
-      );
+      throw new Error(resolveErrorMessage(payload) ?? `payment_failed_${res.status}`);
     }
-    return payload;
+
+    const p = payload as {
+      payment_id?: unknown;
+      status?: unknown;
+      payment_status?: unknown;
+      subscription_id?: unknown;
+      amount?: unknown;
+      currency?: unknown;
+      challenge?: unknown;
+    };
+
+    const paymentId = typeof p.payment_id === "string" ? p.payment_id : undefined;
+    const status = typeof p.status === "string" ? (p.status as PaymentStatus) : undefined;
+    if (!paymentId || !status) {
+      throw new Error("payment_invalid_response");
+    }
+
+    const challenge =
+      p.challenge && typeof p.challenge === "object"
+        ? (() => {
+            const url = (p.challenge as { url?: unknown }).url;
+            return typeof url === "string" ? { url } : undefined;
+          })()
+        : undefined;
+
+    return {
+      paymentId,
+      status,
+      paymentStatus:
+        typeof p.payment_status === "string" ? (p.payment_status as PaymentMethodStatus) : undefined,
+      subscriptionId:
+        typeof p.subscription_id === "string" || p.subscription_id === null
+          ? (p.subscription_id as string | null)
+          : undefined,
+      amount: typeof p.amount === "number" || p.amount === null ? (p.amount as number | null) : undefined,
+      currency:
+        typeof p.currency === "string" || p.currency === null ? (p.currency as string | null) : undefined,
+      challenge,
+    };
   }
 
+  async getPaymentStatus(id: string): Promise<PaymentStatusResponse> {
+    const res = await fetch(`${this.baseUrl}/v1/payments/${id}/status`, {
+      headers: { "x-api-key": this.apiKey, ...this.defaultHeaders },
+    });
+    const payload = (await res.json()) as unknown;
+    if (!res.ok) {
+      throw new Error(resolveErrorMessage(payload) ?? `payment_status_failed_${res.status}`);
+    }
+    const p = payload as { id?: unknown; status?: unknown };
+    if (typeof p.id !== "string" || typeof p.status !== "string") {
+      throw new Error("payment_status_invalid_response");
+    }
+    return { id: p.id, status: p.status as PaymentStatusResponse["status"] };
+  }
+
+  async pollPaymentStatus(
+    paymentId: string,
+    options: PollOptions = {},
+  ): Promise<PaymentStatusResponse> {
+    const startedAt = Date.now();
+    const intervalMs = options.intervalMs ?? 3000;
+    const timeoutMs = options.timeoutMs ?? 120_000;
+
+    while (true) {
+      if (options.signal?.aborted) throw new Error("poll_aborted");
+      if (Date.now() - startedAt > timeoutMs) throw new Error("poll_timeout");
+
+      const status = await this.getPaymentStatus(paymentId);
+      if (
+        status.status === "PAID" ||
+        status.status === "FAILED" ||
+        status.status === "CANCELED"
+      ) {
+        return status;
+      }
+      await sleep(intervalMs);
+    }
+  }
+
+  /**
+   * @deprecated `/v1/charges` is deprecated; prefer `createPayment`.
+   */
+  async createCharge(input: ChargeInput): Promise<ChargeResponse> {
+    const result = await this.createPayment({
+      customerId: input.customerId,
+      amount: input.amount,
+      currency: input.currency,
+      paymentMethod: {
+        type: "credit_card",
+        cardId: input.cardId,
+        installments: input.installments,
+      },
+    });
+
+    if (result.status === "FAILED") {
+      return {
+        id: result.paymentId,
+        status: "FAILED",
+        error: { code: "payment_failed", message: "payment_failed" },
+      };
+    }
+    if (result.status === "ACTION_REQUIRED" && result.challenge?.url) {
+      return {
+        id: result.paymentId,
+        status: "ACTION_REQUIRED",
+        challenge: { url: result.challenge.url, method: "redirect" },
+      };
+    }
+    return { id: result.paymentId, status: "PAID" };
+  }
+
+  /**
+   * @deprecated `/v1/transactions` is deprecated; prefer `createPayment` with `items`.
+   */
+  async createTransaction(
+    input: TransactionInput,
+  ): Promise<TransactionResponse> {
+    const result = await this.createPayment({
+      customerId: input.customerId,
+      items: input.items.map((i) => ({ priceId: i.priceId, quantity: i.quantity })),
+      couponCode: input.couponCode,
+      paymentMethod: {
+        type: input.paymentMethod.type,
+        token: input.paymentMethod.token,
+        installments: input.paymentMethod.installments,
+      },
+    });
+
+    return {
+      id: result.paymentId,
+      status: result.status,
+      paymentStatus: result.paymentStatus,
+      amount: result.amount ?? undefined,
+      currency: (result.currency as "BRL" | "USD" | undefined) ?? undefined,
+    };
+  }
+
+  /**
+   * Dashboard-scoped: requires `bearerToken` in SDK config.
+   */
   async createCustomer(
     input: CustomerCreateInput,
   ): Promise<CustomerCreateResponse> {
+    if (!this.bearerToken) throw new Error("bearer_token_required");
     const res = await fetch(`${this.baseUrl}/v1/customers`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-api-key": this.apiKey,
+        authorization: `Bearer ${this.bearerToken}`,
         ...this.defaultHeaders,
       },
       body: JSON.stringify({
@@ -243,15 +435,19 @@ export class VektopaySDK {
     return payload;
   }
 
+  /**
+   * Dashboard-scoped: requires `bearerToken` in SDK config.
+   */
   async updateCustomer(
     id: string,
     input: CustomerUpdateInput,
   ): Promise<CustomerResponse> {
+    if (!this.bearerToken) throw new Error("bearer_token_required");
     const res = await fetch(`${this.baseUrl}/v1/customers/${id}`, {
       method: "PUT",
       headers: {
         "content-type": "application/json",
-        "x-api-key": this.apiKey,
+        authorization: `Bearer ${this.bearerToken}`,
         ...this.defaultHeaders,
       },
       body: JSON.stringify({
@@ -273,9 +469,13 @@ export class VektopaySDK {
     return payload;
   }
 
+  /**
+   * Dashboard-scoped: requires `bearerToken` in SDK config.
+   */
   async listCustomers(
     params: CustomerListParams = {},
   ): Promise<CustomerResponse[]> {
+    if (!this.bearerToken) throw new Error("bearer_token_required");
     const search = new URLSearchParams();
     if (params.merchantId) search.set("merchant_id", params.merchantId);
     if (typeof params.limit === "number")
@@ -286,7 +486,7 @@ export class VektopaySDK {
     const res = await fetch(
       `${this.baseUrl}/v1/customers${suffix ? `?${suffix}` : ""}`,
       {
-        headers: { "x-api-key": this.apiKey, ...this.defaultHeaders },
+        headers: { authorization: `Bearer ${this.bearerToken}`, ...this.defaultHeaders },
       },
     );
 
@@ -299,9 +499,13 @@ export class VektopaySDK {
     return payload;
   }
 
+  /**
+   * Dashboard-scoped: requires `bearerToken` in SDK config.
+   */
   async getCustomer(id: string): Promise<CustomerResponse> {
+    if (!this.bearerToken) throw new Error("bearer_token_required");
     const res = await fetch(`${this.baseUrl}/v1/customers/${id}`, {
-      headers: { "x-api-key": this.apiKey, ...this.defaultHeaders },
+      headers: { authorization: `Bearer ${this.bearerToken}`, ...this.defaultHeaders },
     });
 
     const payload = (await res.json()) as CustomerResponse;
@@ -313,10 +517,14 @@ export class VektopaySDK {
     return payload;
   }
 
+  /**
+   * Dashboard-scoped: requires `bearerToken` in SDK config.
+   */
   async deleteCustomer(id: string): Promise<CustomerDeleteResponse> {
+    if (!this.bearerToken) throw new Error("bearer_token_required");
     const res = await fetch(`${this.baseUrl}/v1/customers/${id}`, {
       method: "DELETE",
-      headers: { "x-api-key": this.apiKey, ...this.defaultHeaders },
+      headers: { authorization: `Bearer ${this.bearerToken}`, ...this.defaultHeaders },
     });
 
     const payload = (await res.json()) as CustomerDeleteResponse;
@@ -342,6 +550,8 @@ export class VektopaySDK {
         customer_id: input.customerId,
         amount: input.amount,
         currency: input.currency,
+        price_id: input.priceId,
+        quantity: input.quantity,
         expires_in_seconds: input.expiresInSeconds,
         success_url: input.successUrl,
         cancel_url: input.cancelUrl,
@@ -351,17 +561,24 @@ export class VektopaySDK {
     const payload = (await res.json()) as {
       id?: string;
       token?: string;
-      expires_at?: string;
+      expires_at?: string | number;
     };
-    if (!res.ok || !payload.token || !payload.expires_at || !payload.id) {
+    if (!res.ok || !payload.token || payload.expires_at == null || !payload.id) {
       throw new Error(
         resolveErrorMessage(payload) ?? `checkout_session_failed_${res.status}`,
       );
     }
+    const expiresAt =
+      typeof payload.expires_at === "number"
+        ? payload.expires_at
+        : Number(payload.expires_at);
+    if (!Number.isFinite(expiresAt)) {
+      throw new Error("checkout_session_invalid_expires_at");
+    }
     return {
       id: payload.id,
       token: payload.token,
-      expiresAt: payload.expires_at,
+      expiresAt,
     };
   }
 
@@ -369,35 +586,8 @@ export class VektopaySDK {
     transactionId: string,
     options: PollOptions = {},
   ): Promise<ChargeStatusResponse> {
-    const startedAt = Date.now();
-    const intervalMs = options.intervalMs ?? 3000;
-    const timeoutMs = options.timeoutMs ?? 120_000;
-
-    while (true) {
-      if (options.signal?.aborted) {
-        throw new Error("poll_aborted");
-      }
-      if (Date.now() - startedAt > timeoutMs) {
-        throw new Error("poll_timeout");
-      }
-
-      const res = await fetch(
-        `${this.baseUrl}/v1/charges/${transactionId}/status`,
-        {
-          headers: { "x-api-key": this.apiKey, ...this.defaultHeaders },
-        },
-      );
-      const payload = (await res.json()) as ChargeStatusResponse;
-      if (!res.ok) {
-        throw new Error(
-          resolveErrorMessage(payload) ?? `status_failed_${res.status}`,
-        );
-      }
-      if (payload.status === "PAID" || payload.status === "FAILED") {
-        return payload;
-      }
-      await sleep(intervalMs);
-    }
+    const status = await this.pollPaymentStatus(transactionId, options);
+    return { id: status.id, status: status.status };
   }
 
   openChallenge(challenge: { url: string; method: "iframe" | "redirect" }) {

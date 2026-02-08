@@ -1,0 +1,283 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Vektopay SDK API",
+    "version": "dev",
+    "description": "Curated OpenAPI for the endpoints that make sense for the official SDKs. This intentionally excludes internal/admin/dashboard-only surfaces."
+  },
+  "servers": [
+    {
+      "url": "https://api.vektopay.com"
+    }
+  ],
+  "tags": [
+    { "name": "Payments" },
+    { "name": "Checkout" }
+  ],
+  "paths": {
+    "/v1/payments": {
+      "post": {
+        "operationId": "createPayment",
+        "tags": ["Payments"],
+        "security": [{ "ApiKeyAuth": [] }, { "CheckoutSessionAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PaymentRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Payment created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PaymentCreateResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/ErrorResponse" },
+          "401": { "$ref": "#/components/responses/ErrorResponse" },
+          "403": { "$ref": "#/components/responses/ErrorResponse" },
+          "404": { "$ref": "#/components/responses/ErrorResponse" },
+          "409": { "$ref": "#/components/responses/ErrorResponse" },
+          "410": { "$ref": "#/components/responses/ErrorResponse" },
+          "422": { "$ref": "#/components/responses/ErrorResponse" },
+          "429": { "$ref": "#/components/responses/ErrorResponse" },
+          "500": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      }
+    },
+    "/v1/payments/{id}/status": {
+      "get": {
+        "operationId": "getPaymentStatus",
+        "tags": ["Payments"],
+        "security": [{ "ApiKeyAuth": [] }, { "CheckoutSessionAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Payment status",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PaymentStatusResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/ErrorResponse" },
+          "401": { "$ref": "#/components/responses/ErrorResponse" },
+          "403": { "$ref": "#/components/responses/ErrorResponse" },
+          "404": { "$ref": "#/components/responses/ErrorResponse" },
+          "409": { "$ref": "#/components/responses/ErrorResponse" },
+          "410": { "$ref": "#/components/responses/ErrorResponse" },
+          "422": { "$ref": "#/components/responses/ErrorResponse" },
+          "429": { "$ref": "#/components/responses/ErrorResponse" },
+          "500": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      }
+    },
+    "/v1/checkout-sessions": {
+      "post": {
+        "operationId": "createCheckoutSession",
+        "tags": ["Checkout"],
+        "security": [{ "ApiKeyAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CheckoutSessionRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Checkout session created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CheckoutSessionCreateResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/ErrorResponse" },
+          "401": { "$ref": "#/components/responses/ErrorResponse" },
+          "403": { "$ref": "#/components/responses/ErrorResponse" },
+          "404": { "$ref": "#/components/responses/ErrorResponse" },
+          "409": { "$ref": "#/components/responses/ErrorResponse" },
+          "410": { "$ref": "#/components/responses/ErrorResponse" },
+          "422": { "$ref": "#/components/responses/ErrorResponse" },
+          "429": { "$ref": "#/components/responses/ErrorResponse" },
+          "500": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key"
+      },
+      "CheckoutSessionAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-checkout-session"
+      }
+    },
+    "responses": {
+      "ErrorResponse": {
+        "description": "Error response",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "details": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "required": ["code", "message"]
+          }
+        },
+        "required": ["error"]
+      },
+      "PaymentRequest": {
+        "type": "object",
+        "properties": {
+          "customer_id": { "type": "string" },
+          "customer": {
+            "type": "object",
+            "properties": {
+              "external_id": { "type": "string" },
+              "name": { "type": "string" },
+              "email": { "type": "string" },
+              "doc_type": { "type": "string", "enum": ["CPF", "CNPJ"] },
+              "doc_number": { "type": "string" }
+            },
+            "required": ["external_id", "doc_type", "doc_number"]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "price_id": { "type": "string" },
+                "quantity": { "type": "integer", "minimum": 1 }
+              },
+              "required": ["price_id", "quantity"]
+            }
+          },
+          "amount": { "type": "integer", "minimum": 1 },
+          "currency": { "type": "string" },
+          "coupon_code": { "type": "string" },
+          "mode": { "type": "string", "enum": ["one_time", "subscription"] },
+          "webhook_url": { "type": "string" },
+          "payment_method": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["credit_card", "pix"] },
+              "token": { "type": "string" },
+              "card_id": { "type": "string" },
+              "cvc_token": { "type": "string" },
+              "installments": { "type": "integer", "minimum": 1, "maximum": 12 }
+            },
+            "required": ["type"]
+          }
+        },
+        "required": ["payment_method"]
+      },
+      "PaymentCreateResponse": {
+        "type": "object",
+        "properties": {
+          "payment_id": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PAID",
+              "FAILED",
+              "ACTION_REQUIRED",
+              "SUBMITTED",
+              "PENDING",
+              "PENDING_CHALLENGE",
+              "PROCESSING_GATEWAY",
+              "AUTHORIZED",
+              "CAPTURED",
+              "CANCELED"
+            ]
+          },
+          "payment_status": { "type": "string", "enum": ["SUCCESS", "FAILED", "PENDING"] },
+          "subscription_id": { "type": "string", "nullable": true },
+          "amount": { "type": "integer", "nullable": true },
+          "currency": { "type": "string", "nullable": true },
+          "challenge": {
+            "type": "object",
+            "properties": { "url": { "type": "string" } },
+            "required": ["url"]
+          }
+        },
+        "required": ["payment_id", "status"]
+      },
+      "PaymentStatusResponse": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING_CHALLENGE",
+              "PROCESSING_GATEWAY",
+              "AUTHORIZED",
+              "PAID",
+              "CANCELED",
+              "FAILED"
+            ]
+          }
+        },
+        "required": ["id", "status"]
+      },
+      "CheckoutSessionRequest": {
+        "type": "object",
+        "properties": {
+          "customer_id": { "type": "string" },
+          "amount": { "type": "integer", "minimum": 1 },
+          "currency": { "type": "string", "enum": ["BRL", "USD"] },
+          "price_id": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "expires_in_seconds": { "type": "integer", "minimum": 60, "maximum": 86400 },
+          "success_url": { "type": "string" },
+          "cancel_url": { "type": "string" }
+        },
+        "required": ["customer_id"]
+      },
+      "CheckoutSessionCreateResponse": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "token": { "type": "string" },
+          "expires_at": { "type": "number" }
+        },
+        "required": ["id", "token", "expires_at"]
+      }
+    }
+  }
+}
+
