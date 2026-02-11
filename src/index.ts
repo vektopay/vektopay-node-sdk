@@ -21,7 +21,10 @@ export type ChargeResponse =
 
 export type ChargeStatusResponse =
   | { id: string; status: "PAID" | "FAILED" | "CANCELED" }
-  | { id: string; status: "PENDING_CHALLENGE" | "PROCESSING_GATEWAY" | "AUTHORIZED" };
+  | {
+      id: string;
+      status: "PENDING_CHALLENGE" | "PROCESSING_GATEWAY" | "AUTHORIZED";
+    };
 
 export type TransactionItemInput = {
   priceId: string;
@@ -189,6 +192,62 @@ export type CheckoutSessionResponse = {
   expiresAt: number;
 };
 
+export type ProviderTokenResult = {
+  status: "success" | "error";
+  tokenId?: string;
+  tokenType?: string;
+  fingerprintId?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  meta?: Record<string, unknown> | null;
+};
+
+export type CardCaptureSessionInput = {
+  customerId: string;
+  expiresInSeconds?: number;
+  successUrl?: string;
+  cancelUrl?: string;
+};
+
+export type CardCaptureSessionResponse = {
+  id: string;
+  url: string;
+  expiresAt: string;
+};
+
+export type CreateCardInput = {
+  customerId: string;
+  encryptedPan: string;
+  cardBrand?: string;
+  last4?: string;
+  first6?: string;
+  expMonth?: number;
+  expYear?: number;
+  holderName?: string;
+  fingerprint?: string;
+  providerTokens?: Record<string, ProviderTokenResult>;
+  providerMeta?: Record<string, unknown>;
+};
+
+export type CompleteCardCaptureInput = {
+  token: string;
+  encryptedPan: string;
+  setDefault?: boolean;
+  cardBrand?: string;
+  last4?: string;
+  first6?: string;
+  expMonth?: number;
+  expYear?: number;
+  holderName?: string;
+  fingerprint?: string;
+  providerTokens?: Record<string, ProviderTokenResult>;
+  providerMeta?: Record<string, unknown>;
+};
+
+export type CreateCardResponse = {
+  id: string;
+};
+
 function resolveErrorMessage(payload: unknown): string | undefined {
   if (!payload || typeof payload !== "object") return undefined;
   const err = (payload as { error?: unknown }).error;
@@ -244,7 +303,10 @@ export class VektopaySDK {
               doc_number: input.customer.docNumber,
             }
           : undefined,
-        items: input.items?.map((i) => ({ price_id: i.priceId, quantity: i.quantity })),
+        items: input.items?.map((i) => ({
+          price_id: i.priceId,
+          quantity: i.quantity,
+        })),
         amount: input.amount,
         currency: input.currency,
         coupon_code: input.couponCode,
@@ -262,7 +324,9 @@ export class VektopaySDK {
 
     const payload = (await res.json()) as unknown;
     if (!res.ok) {
-      throw new Error(resolveErrorMessage(payload) ?? `payment_failed_${res.status}`);
+      throw new Error(
+        resolveErrorMessage(payload) ?? `payment_failed_${res.status}`,
+      );
     }
 
     const p = payload as {
@@ -275,8 +339,10 @@ export class VektopaySDK {
       challenge?: unknown;
     };
 
-    const paymentId = typeof p.payment_id === "string" ? p.payment_id : undefined;
-    const status = typeof p.status === "string" ? (p.status as PaymentStatus) : undefined;
+    const paymentId =
+      typeof p.payment_id === "string" ? p.payment_id : undefined;
+    const status =
+      typeof p.status === "string" ? (p.status as PaymentStatus) : undefined;
     if (!paymentId || !status) {
       throw new Error("payment_invalid_response");
     }
@@ -293,14 +359,21 @@ export class VektopaySDK {
       paymentId,
       status,
       paymentStatus:
-        typeof p.payment_status === "string" ? (p.payment_status as PaymentMethodStatus) : undefined,
+        typeof p.payment_status === "string"
+          ? (p.payment_status as PaymentMethodStatus)
+          : undefined,
       subscriptionId:
         typeof p.subscription_id === "string" || p.subscription_id === null
           ? (p.subscription_id as string | null)
           : undefined,
-      amount: typeof p.amount === "number" || p.amount === null ? (p.amount as number | null) : undefined,
+      amount:
+        typeof p.amount === "number" || p.amount === null
+          ? (p.amount as number | null)
+          : undefined,
       currency:
-        typeof p.currency === "string" || p.currency === null ? (p.currency as string | null) : undefined,
+        typeof p.currency === "string" || p.currency === null
+          ? (p.currency as string | null)
+          : undefined,
       challenge,
     };
   }
@@ -311,7 +384,9 @@ export class VektopaySDK {
     });
     const payload = (await res.json()) as unknown;
     if (!res.ok) {
-      throw new Error(resolveErrorMessage(payload) ?? `payment_status_failed_${res.status}`);
+      throw new Error(
+        resolveErrorMessage(payload) ?? `payment_status_failed_${res.status}`,
+      );
     }
     const p = payload as { id?: unknown; status?: unknown };
     if (typeof p.id !== "string" || typeof p.status !== "string") {
@@ -384,7 +459,10 @@ export class VektopaySDK {
   ): Promise<TransactionResponse> {
     const result = await this.createPayment({
       customerId: input.customerId,
-      items: input.items.map((i) => ({ priceId: i.priceId, quantity: i.quantity })),
+      items: input.items.map((i) => ({
+        priceId: i.priceId,
+        quantity: i.quantity,
+      })),
       couponCode: input.couponCode,
       paymentMethod: {
         type: input.paymentMethod.type,
@@ -486,7 +564,10 @@ export class VektopaySDK {
     const res = await fetch(
       `${this.baseUrl}/v1/customers${suffix ? `?${suffix}` : ""}`,
       {
-        headers: { authorization: `Bearer ${this.bearerToken}`, ...this.defaultHeaders },
+        headers: {
+          authorization: `Bearer ${this.bearerToken}`,
+          ...this.defaultHeaders,
+        },
       },
     );
 
@@ -505,7 +586,10 @@ export class VektopaySDK {
   async getCustomer(id: string): Promise<CustomerResponse> {
     if (!this.bearerToken) throw new Error("bearer_token_required");
     const res = await fetch(`${this.baseUrl}/v1/customers/${id}`, {
-      headers: { authorization: `Bearer ${this.bearerToken}`, ...this.defaultHeaders },
+      headers: {
+        authorization: `Bearer ${this.bearerToken}`,
+        ...this.defaultHeaders,
+      },
     });
 
     const payload = (await res.json()) as CustomerResponse;
@@ -524,7 +608,10 @@ export class VektopaySDK {
     if (!this.bearerToken) throw new Error("bearer_token_required");
     const res = await fetch(`${this.baseUrl}/v1/customers/${id}`, {
       method: "DELETE",
-      headers: { authorization: `Bearer ${this.bearerToken}`, ...this.defaultHeaders },
+      headers: {
+        authorization: `Bearer ${this.bearerToken}`,
+        ...this.defaultHeaders,
+      },
     });
 
     const payload = (await res.json()) as CustomerDeleteResponse;
@@ -563,7 +650,12 @@ export class VektopaySDK {
       token?: string;
       expires_at?: string | number;
     };
-    if (!res.ok || !payload.token || payload.expires_at == null || !payload.id) {
+    if (
+      !res.ok ||
+      !payload.token ||
+      payload.expires_at == null ||
+      !payload.id
+    ) {
       throw new Error(
         resolveErrorMessage(payload) ?? `checkout_session_failed_${res.status}`,
       );
@@ -580,6 +672,109 @@ export class VektopaySDK {
       token: payload.token,
       expiresAt,
     };
+  }
+
+  async createCardCaptureSession(
+    input: CardCaptureSessionInput,
+  ): Promise<CardCaptureSessionResponse> {
+    const res = await fetch(`${this.baseUrl}/v1/card-capture-sessions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": this.apiKey,
+        ...this.defaultHeaders,
+      },
+      body: JSON.stringify({
+        customer_id: input.customerId,
+        expires_in_seconds: input.expiresInSeconds,
+        success_url: input.successUrl,
+        cancel_url: input.cancelUrl,
+      }),
+    });
+
+    const payload = (await res.json()) as {
+      id?: string;
+      url?: string;
+      expires_at?: string;
+    };
+    if (!res.ok || !payload.id || !payload.url || !payload.expires_at) {
+      throw new Error(
+        resolveErrorMessage(payload) ??
+          `card_capture_session_failed_${res.status}`,
+      );
+    }
+    return {
+      id: payload.id,
+      url: payload.url,
+      expiresAt: payload.expires_at,
+    };
+  }
+
+  async completeCardCapture(
+    input: CompleteCardCaptureInput,
+  ): Promise<CreateCardResponse> {
+    const res = await fetch(`${this.baseUrl}/v1/card-capture/complete`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...this.defaultHeaders,
+      },
+      body: JSON.stringify({
+        token: input.token,
+        encrypted_pan: input.encryptedPan,
+        set_default: input.setDefault,
+        card_brand: input.cardBrand,
+        last4: input.last4,
+        first6: input.first6,
+        exp_month: input.expMonth,
+        exp_year: input.expYear,
+        holder_name: input.holderName,
+        fingerprint: input.fingerprint,
+        provider_tokens: mapProviderTokensToApi(input.providerTokens),
+        provider_meta: input.providerMeta,
+      }),
+    });
+
+    const payload = (await res.json()) as CreateCardResponse;
+    if (!res.ok || !payload.id) {
+      throw new Error(
+        resolveErrorMessage(payload) ??
+          `card_capture_complete_failed_${res.status}`,
+      );
+    }
+    return payload;
+  }
+
+  async createCard(input: CreateCardInput): Promise<CreateCardResponse> {
+    const res = await fetch(`${this.baseUrl}/v1/cards`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": this.apiKey,
+        ...this.defaultHeaders,
+      },
+      body: JSON.stringify({
+        customer_id: input.customerId,
+        encrypted_pan: input.encryptedPan,
+        card_brand: input.cardBrand,
+        last4: input.last4,
+        first6: input.first6,
+        exp_month: input.expMonth,
+        exp_year: input.expYear,
+        holder_name: input.holderName,
+        fingerprint: input.fingerprint,
+        provider_tokens: mapProviderTokensToApi(input.providerTokens),
+        provider_meta: input.providerMeta,
+      }),
+    });
+
+    const payload = (await res.json()) as CreateCardResponse;
+    if (!res.ok || !payload.id) {
+      throw new Error(
+        resolveErrorMessage(payload) ?? `card_create_failed_${res.status}`,
+      );
+    }
+    return payload;
   }
 
   async pollChargeStatus(
@@ -627,4 +822,22 @@ export class VektopaySDK {
       },
     };
   }
+}
+
+function mapProviderTokensToApi(
+  value: Record<string, ProviderTokenResult> | undefined,
+) {
+  if (!value) return undefined;
+  const output: Record<string, Record<string, string>> = {};
+  for (const [key, item] of Object.entries(value)) {
+    output[key] = {
+      status: item.status,
+      ...(item.tokenId ? { token_id: item.tokenId } : {}),
+      ...(item.tokenType ? { token_type: item.tokenType } : {}),
+      ...(item.fingerprintId ? { fingerprint_id: item.fingerprintId } : {}),
+      ...(item.errorCode ? { error_code: item.errorCode } : {}),
+      ...(item.errorMessage ? { error_message: item.errorMessage } : {}),
+    };
+  }
+  return output;
 }
