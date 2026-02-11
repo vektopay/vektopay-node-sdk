@@ -10,14 +10,25 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "lint": "npx @biomejs/biome check src scripts",
+    "typecheck": "npx tsc --noEmit --project tsconfig.json",
+    "test": "node --test",
+    "validate": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "prepare": "husky || true"
   },
   "engines": {
     "node": ">=18"
   },
   "devDependencies": {
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "@biomejs/biome": "^1.9.4",
+    "@commitlint/config-conventional": "^19.8.1",
+    "commitlint": "^19.8.1",
+    "husky": "^9.1.7"
   }
 }
